@@ -1,0 +1,235 @@
+openapi: 3.0.3
+info:
+  title: NASA Weather Likelihood API
+  version: 1.0.0
+  description: |
+    API for historical likelihoods and seasonal projections (NASA-only).
+    Uses NASA Giovanni for time series; computes stats, probabilities, trend, and percentiles.
+servers:
+  - url: http://localhost:8000/api/v1
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+  /variables:
+    get:
+      summary: Get available variables and dataset mapping
+      parameters:
+        - $ref: '#/components/parameters/ApiKey'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data_map:
+                    type: object
+                    additionalProperties:
+                      type: string
+  /thresholds:
+    get:
+      summary: Get thresholds per variable
+      parameters:
+        - $ref: '#/components/parameters/ApiKey'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  thresholds:
+                    type: object
+  /query:
+    post:
+      summary: Historical likelihoods near a day-of-year
+      parameters:
+        - $ref: '#/components/parameters/ApiKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lon, day_of_year, variables]
+              properties:
+                lat: { type: number, format: float }
+                lon: { type: number, format: float }
+                day_of_year: { type: integer, minimum: 1, maximum: 366 }
+                start_year: { type: integer }
+                end_year: { type: integer }
+                variables:
+                  type: array
+                  items: { type: string }
+                window_days: { type: integer, minimum: 0, maximum: 15 }
+      responses:
+        '200':
+          description: Results per variable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+  /forecast:
+    post:
+      summary: Seasonal projection to target date (NASA-only)
+      parameters:
+        - $ref: '#/components/parameters/ApiKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lon, date, variables]
+              properties:
+                lat: { type: number, format: float }
+                lon: { type: number, format: float }
+                date: { type: string, format: date }
+                variables:
+                  type: array
+                  items: { type: string }
+                window_days: { type: integer, minimum: 0, maximum: 15 }
+                start_year: { type: integer }
+                end_year: { type: integer }
+      responses:
+        '200':
+          description: Projection results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForecastResponse'
+  /download:
+    get:
+      summary: Download CSV of results for given query
+      parameters:
+        - $ref: '#/components/parameters/ApiKey'
+        - name: lat
+          in: query
+          required: true
+          schema: { type: number, format: float }
+        - name: lon
+          in: query
+          required: true
+          schema: { type: number, format: float }
+        - name: day_of_year
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 366 }
+        - name: start_year
+          in: query
+          schema: { type: integer }
+        - name: end_year
+          in: query
+          schema: { type: integer }
+        - name: variables
+          in: query
+          schema:
+            type: string
+            description: Comma-separated variable list
+        - name: window_days
+          in: query
+          schema: { type: integer, minimum: 0, maximum: 15 }
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv: {}
+components:
+  parameters:
+    ApiKey:
+      name: X-API-Key
+      in: header
+      required: false
+      schema: { type: string }
+      description: Required if API_KEY is set in server .env
+  schemas:
+    Stats:
+      type: object
+      properties:
+        count: { type: integer }
+        mean: { type: number, nullable: true }
+        median: { type: number, nullable: true }
+        std: { type: number, nullable: true }
+    Trend:
+      type: object
+      properties:
+        slope: { type: number, nullable: true }
+        intercept: { type: number, nullable: true }
+        r2: { type: number, nullable: true }
+        n: { type: integer }
+    QueryVariableResult:
+      type: object
+      properties:
+        years:
+          type: object
+          additionalProperties: { type: number }
+        stats: { $ref: '#/components/schemas/Stats' }
+        probabilities:
+          type: object
+          additionalProperties: { type: number }
+        trend: { $ref: '#/components/schemas/Trend' }
+        percentiles:
+          type: object
+          additionalProperties: { type: number }
+    QueryResponse:
+      type: object
+      properties:
+        location:
+          type: object
+          properties: { lat: {type: number}, lon: {type: number} }
+        period:
+          type: object
+          properties: { start: {type: integer}, end: {type: integer} }
+        day_of_year: { type: integer }
+        results:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/QueryVariableResult' }
+    ForecastVariableResult:
+      type: object
+      properties:
+        baseline:
+          type: object
+          properties:
+            years:
+              type: object
+              additionalProperties: { type: number }
+            stats: { $ref: '#/components/schemas/Stats' }
+            percentiles:
+              type: object
+              additionalProperties: { type: number }
+        trend: { $ref: '#/components/schemas/Trend' }
+        projected:
+          type: object
+          properties:
+            target_year: { type: integer }
+            years:
+              type: object
+              additionalProperties: { type: number }
+            stats: { $ref: '#/components/schemas/Stats' }
+            percentiles:
+              type: object
+              additionalProperties: { type: number }
+            probabilities:
+              type: object
+              additionalProperties: { type: number }
+    ForecastResponse:
+      type: object
+      properties:
+        location:
+          type: object
+          properties: { lat: {type: number}, lon: {type: number} }
+        baseline_period:
+          type: object
+          properties: { start: {type: integer}, end: {type: integer} }
+        date: { type: string, format: date }
+        day_of_year: { type: integer }
+        results:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/ForecastVariableResult' }
+        notes: { type: string }
